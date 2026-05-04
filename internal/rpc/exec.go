@@ -14,6 +14,7 @@ import (
 	"os/exec"
 	"slices"
 	"strings"
+	"syscall"
 )
 
 const (
@@ -36,9 +37,47 @@ func (rpc *RPC) Exec(stream grpc.BidiStreamingServer[ExecRequest, ExecResponse])
 	zap.S().Infof("executing %s", formatCommandAndArgs(firstExecRequestCommand.Command.Name,
 		firstExecRequestCommand.Command.Args))
 
+	if firstExecRequestCommand.Command.Detach &&
+		(firstExecRequestCommand.Command.Interactive || firstExecRequestCommand.Command.Tty) {
+		return fmt.Errorf("detach cannot be used with interactive or tty")
+	}
+
 	// Execute the command
-	cmd := exec.CommandContext(stream.Context(), firstExecRequestCommand.Command.Name,
+	execCtx := stream.Context()
+	if firstExecRequestCommand.Command.Detach {
+		execCtx = context.Background()
+	}
+
+	cmd := exec.CommandContext(execCtx, firstExecRequestCommand.Command.Name,
 		firstExecRequestCommand.Command.Args...)
+	applyExecOverrides(cmd, firstExecRequestCommand.Command)
+
+	if firstExecRequestCommand.Command.Detach {
+		cmd.Stdout = io.Discard
+		cmd.Stderr = io.Discard
+		cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+
+		if err := cmd.Start(); err != nil {
+			return err
+		}
+		if cmd.Process != nil {
+			if err := cmd.Process.Release(); err != nil {
+				return err
+			}
+		}
+
+		if err := stream.Send(&ExecResponse{
+			Type: &ExecResponse_Exit_{
+				Exit: &ExecResponse_Exit{
+					Code: 0,
+				},
+			},
+		}); err != nil && !errors.Is(err, context.Canceled) {
+			return err
+		}
+
+		return nil
+	}
 
 	var stdin io.WriteCloser
 	var stdout, stderr io.ReadCloser
@@ -237,6 +276,42 @@ func (rpc *RPC) Exec(stream grpc.BidiStreamingServer[ExecRequest, ExecResponse])
 			},
 		},
 	})
+}
+
+func applyExecOverrides(cmd *exec.Cmd, command *ExecRequest_Command) {
+	if command.Workdir != "" {
+		cmd.Dir = command.Workdir
+	}
+
+	if len(command.Env) > 0 {
+		cmd.Env = mergeEnv(command.Env)
+	}
+}
+
+func mergeEnv(overrides map[string]string) []string {
+	if len(overrides) == 0 {
+		return os.Environ()
+	}
+
+	envMap := make(map[string]string, len(overrides))
+	for _, entry := range os.Environ() {
+		parts := strings.SplitN(entry, "=", 2)
+		if len(parts) != 2 {
+			continue
+		}
+		envMap[parts[0]] = parts[1]
+	}
+
+	for key, value := range overrides {
+		envMap[key] = value
+	}
+
+	merged := make([]string, 0, len(envMap))
+	for key, value := range envMap {
+		merged = append(merged, key+"="+value)
+	}
+
+	return merged
 }
 
 func formatCommandAndArgs(name string, args []string) string {
