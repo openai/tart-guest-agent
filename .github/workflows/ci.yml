@@ -1,0 +1,158 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+    tags:
+      - '*'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    name: Lint
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libx11-dev
+      - name: Install golangci-lint
+        run: go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest
+      - name: Lint
+        run: golangci-lint run -v --output.json.path golangci.json
+      - name: Upload golangci report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: golangci-report
+          path: golangci.json
+          if-no-files-found: ignore
+
+  test_linux:
+    name: Test (Linux)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libx11-dev
+      - name: Test
+        run: go test -v ./...
+
+  test_macos:
+    name: Test (macOS)
+    runs-on: macos-15
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+      - name: Test
+        run: go test -v ./...
+
+  buf_generate:
+    name: Check for lacking buf generate invocation
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+      - name: Install buf
+        run: go install github.com/bufbuild/buf/cmd/buf@v1.50.0
+      - name: Generate
+        run: buf generate
+      - name: Check generated files
+        run: git diff --exit-code
+
+  buf_push:
+    name: buf push
+    if: github.event_name == 'push' && github.ref_type == 'branch' && github.repository == 'cirruslabs/tart-guest-agent'
+    needs:
+      - buf_generate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      BUF_TOKEN: ${{ secrets.BUF_TOKEN }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+      - name: Install buf
+        run: go install github.com/bufbuild/buf/cmd/buf@v1.50.0
+      - name: Log in to buf
+        run: echo "$BUF_TOKEN" | buf registry login --token-stdin
+      - name: Push
+        run: buf push --git-metadata
+
+  release_dry_run:
+    name: Release (Dry Run)
+    if: github.event_name != 'pull_request' && github.ref_type != 'tag'
+    needs:
+      - lint
+      - test_linux
+      - test_macos
+    runs-on: macos-15
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+      - name: Install GoReleaser
+        run: brew install --cask goreleaser/tap/goreleaser-pro
+      - name: Build snapshot
+        run: goreleaser release --clean --snapshot
+      - name: Upload dist
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist-dry-run
+          path: dist/**
+          if-no-files-found: ignore
+
+  release:
+    name: Release
+    if: github.ref_type == 'tag'
+    needs:
+      - lint
+      - test_linux
+      - test_macos
+    runs-on: macos-15
+    timeout-minutes: 45
+    permissions:
+      contents: write
+    env:
+      FURY_TOKEN: ${{ secrets.FURY_TOKEN }}
+      GITHUB_TOKEN: ${{ github.token }}
+      GORELEASER_KEY: ${{ secrets.GORELEASER_KEY }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+      - name: Install GoReleaser
+        run: brew install --cask goreleaser/tap/goreleaser-pro
+      - name: Release
+        run: goreleaser
