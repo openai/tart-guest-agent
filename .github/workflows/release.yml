@@ -1,0 +1,47 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: ${{ github.ref_type == 'tag' && 'Release' || 'Release (Dry Run)' }}
+    runs-on: ghcr.io/cirruslabs/macos-runner:sequoia
+    timeout-minutes: 60
+    env:
+      GITHUB_TOKEN: ${{ secrets.GH_PAT }}
+      GORELEASER_KEY: ${{ secrets.GORELEASER_KEY }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Release
+        if: github.ref_type == 'tag'
+        uses: goreleaser/goreleaser-action@v7
+        with:
+          distribution: goreleaser-pro
+          version: "~> v2"
+          args: release --clean
+      - name: Release dry run
+        if: github.ref_type != 'tag'
+        uses: goreleaser/goreleaser-action@v7
+        with:
+          distribution: goreleaser-pro
+          version: "~> v2"
+          args: release --skip=publish --snapshot --clean
+      - name: Upload dry-run artifacts
+        if: github.ref_type != 'tag'
+        uses: actions/upload-artifact@v6
+        with:
+          name: tart-guest-agent-snapshot
+          path: dist/**

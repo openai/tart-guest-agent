@@ -53,32 +53,7 @@ brews:
     repository:
       owner: cirruslabs
       name: homebrew-cli
-    homepage: https://github.com/cirruslabs/tart-guest-agent
+    homepage: https://github.com/openai/tart-guest-agent
     license: FSL-1.1-Apache-2.0
     description: Guest agent for Tart VMs
     skip_upload: auto
-
-nfpms:
-  - package_name: "{{ .ProjectName }}"
-    vendor: Cirrus Labs, Inc.
-    homepage: https://github.com/cirruslabs/tart-guest-agent
-    maintainer: support@cirruslabs.org
-    description: Guest agent for Tart VMs
-    section: misc
-    formats:
-      - apk
-      - deb
-      - rpm
-    contents:
-      - src: packaging/tart-guest-agent.service
-        dst: /etc/systemd/system/tart-guest-agent.service
-        file_info:
-          mode: 0644
-
-    scripts:
-      postinstall: packaging/postinstall.sh
-      preremove: packaging/preremove.sh
-      postremove: packaging/postremove.sh
-
-furies:
-  - account: cirruslabs

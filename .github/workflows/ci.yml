@@ -1,0 +1,99 @@
+name: CI
+
+on:
+  merge_group:
+  pull_request:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Install system dependencies
+        run: sudo apt-get update && sudo apt-get install --yes libx11-dev
+      - uses: golangci/golangci-lint-action@v9
+        with:
+          version: v2.12.0
+          only-new-issues: true
+
+  test-linux:
+    name: Test (Linux)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Install system dependencies
+        run: sudo apt-get update && sudo apt-get install --yes libx11-dev
+      - name: Run tests
+        run: go test -v ./...
+
+  test-macos:
+    name: Test (macOS)
+    runs-on: ghcr.io/cirruslabs/macos-runner:sequoia
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Run tests
+        run: go test -v ./...
+
+  generated-code:
+    name: Check generated code
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Install Buf
+        run: go install github.com/bufbuild/buf/cmd/buf@v1.50.0
+      - name: Generate code
+        run: buf generate
+      - name: Check for changes
+        run: git diff --exit-code
+
+  buf-push:
+    name: Push Buf module
+    if: github.event_name == 'push' && github.repository_owner == 'openai'
+    needs: generated-code
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Install Buf
+        run: go install github.com/bufbuild/buf/cmd/buf@v1.50.0
+      - name: Log in to Buf
+        run: echo "$BUF_TOKEN" | buf registry login --token-stdin
+        env:
+          BUF_TOKEN: ${{ secrets.BUF_TOKEN }}
+      - name: Push module
+        run: buf push --git-metadata
