@@ -50,9 +50,14 @@ release:
 
 brews:
   - name: "{{ .ProjectName }}"
+    directory: Formula
     repository:
-      owner: cirruslabs
-      name: homebrew-cli
+      owner: openai
+      name: homebrew-tools
+      token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
+      branch: "{{ .ProjectName }}-{{ .Version }}"
+      pull_request:
+        enabled: true
     homepage: https://github.com/openai/tart-guest-agent
     license: FSL-1.1-Apache-2.0
     description: Guest agent for Tart VMs
