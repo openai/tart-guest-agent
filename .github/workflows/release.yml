@@ -11,7 +11,8 @@ permissions:
 
 jobs:
   release:
-    name: ${{ github.ref_type == 'tag' && 'Release' || 'Release (Dry Run)' }}
+    name: Release
+    if: github.ref_type == 'tag'
     runs-on: ghcr.io/cirruslabs/macos-runner:sequoia
     timeout-minutes: 60
     environment: publish
@@ -25,7 +26,6 @@ jobs:
           go-version-file: go.mod
           cache: true
       - name: Create release app token for this repository
-        if: github.ref_type == 'tag'
         id: release-token
         uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
         with:
@@ -33,7 +33,6 @@ jobs:
           private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
           permission-contents: write
       - name: Create release app token for homebrew-tools
-        if: github.ref_type == 'tag'
         id: tap-token
         uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
         with:
@@ -44,7 +43,6 @@ jobs:
           permission-contents: write
           permission-pull-requests: write
       - name: Release
-        if: github.ref_type == 'tag'
         uses: goreleaser/goreleaser-action@v7
         with:
           distribution: goreleaser-pro
@@ -54,8 +52,22 @@ jobs:
           GITHUB_TOKEN: ${{ steps.release-token.outputs.token }}
           GORELEASER_KEY: ${{ secrets.GORELEASER_KEY }}
           HOMEBREW_TAP_GITHUB_TOKEN: ${{ steps.tap-token.outputs.token }}
+
+  dry-run:
+    name: Release (Dry Run)
+    if: github.ref_type != 'tag'
+    runs-on: ghcr.io/cirruslabs/macos-runner:sequoia
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
       - name: Release dry run
-        if: github.ref_type != 'tag'
         uses: goreleaser/goreleaser-action@v7
         with:
           distribution: goreleaser-pro
@@ -63,9 +75,7 @@ jobs:
           args: release --skip=publish --snapshot --clean
         env:
           GITHUB_TOKEN: ${{ github.token }}
-          GORELEASER_KEY: ${{ secrets.GORELEASER_KEY }}
       - name: Upload dry-run artifacts
-        if: github.ref_type != 'tag'
         uses: actions/upload-artifact@v6
         with:
           name: tart-guest-agent-snapshot
