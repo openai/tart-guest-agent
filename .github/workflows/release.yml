@@ -1,0 +1,82 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "*"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  release:
+    name: Release
+    if: github.ref_type == 'tag'
+    runs-on: macos-26
+    timeout-minutes: 60
+    environment: publish
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Create release app token for this repository
+        id: release-token
+        uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+        with:
+          app-id: ${{ secrets.RELEASE_APP_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+          permission-contents: write
+      - name: Create release app token for homebrew-tools
+        id: tap-token
+        uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+        with:
+          app-id: ${{ secrets.RELEASE_APP_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+          owner: openai
+          repositories: homebrew-tools
+          permission-contents: write
+          permission-pull-requests: write
+      - name: Release
+        uses: goreleaser/goreleaser-action@v7
+        with:
+          distribution: goreleaser-pro
+          version: "~> v2"
+          args: release --clean
+        env:
+          GITHUB_TOKEN: ${{ steps.release-token.outputs.token }}
+          GORELEASER_KEY: ${{ secrets.GORELEASER_KEY }}
+          HOMEBREW_TAP_GITHUB_TOKEN: ${{ steps.tap-token.outputs.token }}
+
+  dry-run:
+    name: Release (Dry Run)
+    if: github.ref_type != 'tag'
+    runs-on: macos-26
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Release dry run
+        uses: goreleaser/goreleaser-action@v7
+        with:
+          distribution: goreleaser-pro
+          version: "~> v2"
+          args: release --skip=publish --snapshot --clean
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+      - name: Upload dry-run artifacts
+        uses: actions/upload-artifact@v6
+        with:
+          name: tart-guest-agent-snapshot
+          path: dist/**
