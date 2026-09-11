@@ -39,3 +39,21 @@ func TestVDI_ReadWriteRoundTrip(t *testing.T) {
 	assert.Equal(t, len(payload), rn)
 	assert.Equal(t, payload, readBuf[:rn])
 }
+
+func TestVDI_ResyncOnMisalignedBytes(t *testing.T) {
+	var buf bytes.Buffer
+	// Prefix with 3 bytes of garbage (e.g. 0xff, 0x41, 0x42)
+	buf.Write([]byte{0xff, 0x41, 0x42})
+
+	// Follow with valid chunk: Port=1, Size=5, Payload="world"
+	binary.Write(&buf, binary.LittleEndian, uint32(1))
+	binary.Write(&buf, binary.LittleEndian, uint32(5))
+	buf.WriteString("world")
+
+	v := vdi.New(&buf)
+	readBuf := make([]byte, 100)
+	rn, err := v.Read(readBuf)
+	require.NoError(t, err)
+	assert.Equal(t, 5, rn)
+	assert.Equal(t, "world", string(readBuf[:rn]))
+}

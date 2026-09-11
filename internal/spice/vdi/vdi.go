@@ -41,17 +41,32 @@ func (vdi *VDI) Read(buf []byte) (int, error) {
 			return n, nil
 		}
 
-		// Read next chunk header
-		var vdiChunkHeader chunkHeader
-		if err := binary.Read(vdi.inner, binary.LittleEndian, &vdiChunkHeader); err != nil {
+		// Read next chunk header with resync on misaligned bytes
+		var headerBuf [8]byte
+		if _, err := io.ReadFull(vdi.inner, headerBuf[:]); err != nil {
 			return 0, err
 		}
 
-		if vdiChunkHeader.Size > MaxChunkSize {
-			return 0, fmt.Errorf("vdi: chunk size %d exceeds maximum allowable limit (%d bytes)", vdiChunkHeader.Size, MaxChunkSize)
+		port := binary.LittleEndian.Uint32(headerBuf[0:4])
+		size := binary.LittleEndian.Uint32(headerBuf[4:8])
+
+		// Resynchronize if Port does not match VDP_CLIENT_PORT
+		for port != vd.VDP_CLIENT_PORT {
+			copy(headerBuf[0:7], headerBuf[1:8])
+			var b [1]byte
+			if _, err := io.ReadFull(vdi.inner, b[:]); err != nil {
+				return 0, err
+			}
+			headerBuf[7] = b[0]
+			port = binary.LittleEndian.Uint32(headerBuf[0:4])
+			size = binary.LittleEndian.Uint32(headerBuf[4:8])
 		}
 
-		vdi.remaining = uint64(vdiChunkHeader.Size)
+		if size > MaxChunkSize {
+			return 0, fmt.Errorf("vdi: chunk size %d exceeds maximum allowable limit (%d bytes)", size, MaxChunkSize)
+		}
+
+		vdi.remaining = uint64(size)
 	}
 }
 

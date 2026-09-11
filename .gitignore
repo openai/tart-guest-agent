@@ -4,3 +4,4 @@
 # Distribution / packaging:
 dist/
 vendor/
+bin/
