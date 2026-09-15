@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
@@ -10,6 +11,7 @@ import (
 
 	"github.com/cirruslabs/tart-guest-agent/internal/activity"
 	"github.com/cirruslabs/tart-guest-agent/internal/settings"
+	"github.com/cirruslabs/tart-guest-agent/internal/spice/filexfer"
 )
 
 // FormatRecentNotifications formats the activity list for display in the UI panel.
@@ -122,7 +124,7 @@ func ShowSettingsDialog() error {
 			boolStatus(s.ImageClipboardEnabled),
 			boolStatus(s.FileTransferEnabled),
 			boolStatus(s.AutoResizeEnabled),
-			s.DownloadDir,
+			ResolveDownloadsFolder(),
 		)
 		escaped := EscapeAppleScriptString(currentSummary)
 
@@ -232,7 +234,7 @@ func ShowSettingsDialog() error {
 			boolStatus(s.ImageClipboardEnabled),
 			boolStatus(s.FileTransferEnabled),
 			boolStatus(s.AutoResizeEnabled),
-			s.DownloadDir,
+			ResolveDownloadsFolder(),
 		)
 	}
 	return nil
@@ -260,19 +262,31 @@ func ShowDoctorDialog(reportText string, overall string) error {
 	return nil
 }
 
-// OpenDownloadsFolder opens the configured downloads directory in the system file manager.
-func OpenDownloadsFolder() error {
-	dir := settings.Get().DownloadDir
-	if dir == "" {
-		home, _ := os.UserHomeDir()
-		dir = filepath.Join(home, "Downloads")
+const downloadDirPerm = 0750
+
+// ResolveDownloadsFolder returns the target directory used for downloads,
+// adhering to the same fallback strategy as the file transfer manager (settings path -> ~/Downloads -> ~ -> temp).
+func ResolveDownloadsFolder() string {
+	dir := filexfer.DefaultDownloadDir()
+	if err := os.MkdirAll(dir, downloadDirPerm); err != nil {
+		dir = filepath.Join(os.TempDir(), "tart-transfers")
+		_ = os.MkdirAll(dir, downloadDirPerm)
 	}
+	return dir
+}
+
+// OpenDownloadsFolder opens the downloads directory in the system file manager.
+func OpenDownloadsFolder() error {
+	dir := ResolveDownloadsFolder()
+	ctx := context.Background()
 
 	switch runtime.GOOS {
 	case "darwin":
-		return exec.Command("open", dir).Start()
+		return exec.CommandContext(ctx, "open", dir).Start() // #nosec G204
 	case "linux":
-		return exec.Command("xdg-open", dir).Start()
+		return exec.CommandContext(ctx, "xdg-open", dir).Start() // #nosec G204
+	case "windows":
+		return exec.CommandContext(ctx, "explorer", dir).Start() // #nosec G204
 	}
 	return nil
 }
