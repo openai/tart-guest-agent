@@ -395,7 +395,7 @@ func TestVDAgent_ReadMessage_OversizedPayloadRejected(t *testing.T) {
 	}
 }
 
-func TestVDAgent_GuestGrab_HostOwnershipPreserved(t *testing.T) {
+func TestVDAgent_GuestGrab_OverridesPendingHostOwnership(t *testing.T) {
 	var writeBuf bytes.Buffer
 	agent := &VDAgent{
 		vdi:              vdi.New(&writeBuf),
@@ -404,18 +404,26 @@ func TestVDAgent_GuestGrab_HostOwnershipPreserved(t *testing.T) {
 		clipGen:          42,
 	}
 
-	// Calling processClipboardState with new text when isHostOwned=true and clipGen changes in flight
-	// Emulate host grab claiming ownership
-	err := agent.processClipboardState([]byte("stale guest text"), vd.VD_AGENT_CLIPBOARD_UTF8_TEXT)
+	// A host GRAB->CLIPBOARD round-trip is in flight (isHostOwned=true, no reply processed
+	// yet), and the user makes a genuinely new local clipboard change in that window. Since
+	// selfTextWritePending/lastClipboardState don't match, this is not a self-write or
+	// cross-format echo, so it must win over the pending host claim: otherwise the later
+	// (now stale) host reply would silently overwrite this fresh guest write.
+	err := agent.processClipboardState([]byte("fresh guest text"), vd.VD_AGENT_CLIPBOARD_UTF8_TEXT)
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
 
 	agent.clipMu.Lock()
 	defer agent.clipMu.Unlock()
-	// Should not have clobbered isHostOwned
-	if !agent.isHostOwned {
-		t.Fatalf("expected isHostOwned to remain true after host took precedence")
+	if agent.isHostOwned {
+		t.Fatalf("expected the genuine local write to invalidate pending host ownership")
+	}
+	if agent.clipGen != 43 {
+		t.Fatalf("expected clipGen to advance past the invalidated host claim, got %d", agent.clipGen)
+	}
+	if writeBuf.Len() == 0 {
+		t.Fatalf("expected a guest GRAB to be emitted for the new local write")
 	}
 }
 

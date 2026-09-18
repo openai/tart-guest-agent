@@ -910,11 +910,17 @@ func (agent *VDAgent) processClipboardState(newClipboardState []byte, clipType u
 		defer agent.writeMu.Unlock()
 
 		agent.clipMu.Lock()
-		if agent.clipGen != initialGen || agent.isHostOwned {
+		if agent.clipGen != initialGen {
 			agent.clipMu.Unlock()
-			zap.S().Debugf("suppressing guest release emission; host ownership or newer clipboard event took precedence")
+			zap.S().Debugf("suppressing guest release emission; a newer clipboard event took precedence")
 			return nil
 		}
+		// A genuine local change reaching this point (self-write and cross-format
+		// echoes were already filtered above) always invalidates host ownership,
+		// even if a host GRAB->CLIPBOARD round-trip is still in flight: it makes
+		// any host reply that arrives afterward look stale to the isHostOwned
+		// check in handleMessage, so it gets ignored instead of clobbering this
+		// change.
 
 		zap.S().Debugf("O: VD_AGENT_CLIPBOARD_RELEASE")
 		if err := agent.writeMessageLocked(vd.VD_AGENT_CLIPBOARD_RELEASE, releaseBytes); err != nil {
@@ -948,11 +954,13 @@ func (agent *VDAgent) processClipboardState(newClipboardState []byte, clipType u
 	defer agent.writeMu.Unlock()
 
 	agent.clipMu.Lock()
-	if agent.clipGen != initialGen || agent.isHostOwned {
+	if agent.clipGen != initialGen {
 		agent.clipMu.Unlock()
-		zap.S().Debugf("suppressing guest grab emission; host ownership or newer clipboard event took precedence (gen %d != %d, isHost=%v)", agent.clipGen, initialGen, agent.isHostOwned)
+		zap.S().Debugf("suppressing guest grab emission; a newer clipboard event took precedence (gen %d != %d)", agent.clipGen, initialGen)
 		return nil
 	}
+	// See the matching comment in the release branch above: a genuine local
+	// change always wins over a stale/in-flight host ownership claim.
 
 	zap.S().Debugf("O: VD_AGENT_CLIPBOARD_GRAB (types=%v)", types)
 	if err := agent.writeMessageLocked(vd.VD_AGENT_CLIPBOARD_GRAB, ourGrabBytes); err != nil {
