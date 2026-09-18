@@ -39,9 +39,17 @@ func isTextIni(data []byte) bool {
 	if bytes.HasPrefix(trimmed, []byte("[vdagent-file-xfer]")) {
 		return true
 	}
-	// Key-value metadata lines
+	// Key-value metadata lines. The leading bytes of a binary size field can coincidentally
+	// spell "name=" or "size=" (e.g. a file size whose low 5 bytes happen to match, with the
+	// zero padding above it), so also require the candidate line to end in a newline with no
+	// embedded NUL byte before it: a real size field's zero padding always produces a NUL
+	// before any newline, while every bare key-value sender this format supports terminates
+	// its line with '\n'.
 	if bytes.HasPrefix(trimmed, []byte("name=")) || bytes.HasPrefix(trimmed, []byte("size=")) {
-		return true
+		newline := bytes.IndexAny(trimmed, "\r\n")
+		if newline >= 0 && bytes.IndexByte(trimmed[:newline], 0x00) == -1 {
+			return true
+		}
 	}
 	// General INI envelope: must start with "[", have a closing "]", a newline,
 	// contain "name=", and contain no NUL bytes in the section header line.

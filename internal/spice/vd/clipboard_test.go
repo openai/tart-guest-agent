@@ -200,3 +200,19 @@ func TestFileXferStart_BinarySizeWithBracketByte(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, raw, encoded)
 }
+
+func TestFileXferStart_BinarySizeWithNameEqualsCollision(t *testing.T) {
+	// Size = 263694672238, whose little-endian low 5 bytes spell "name=" (0x6e 0x61 0x6d 0x65 0x3d),
+	// with the zero padding above it landing right after -- verifying it is not misclassified as INI.
+	raw := []byte{
+		0x0b, 0x00, 0x00, 0x00, // ID = 11
+		0x6e, 0x61, 0x6d, 0x65, 0x3d, 0x00, 0x00, 0x00, // Size = 263694672238 ("name=\x00\x00\x00")
+		'g', 'i', 'g', 'a', 'n', 't', 'i', 'c', '.', 'i', 's', 'o', 0x00,
+	}
+
+	msg, err := vd.DecodeVDAgentFileXferStart(raw)
+	require.NoError(t, err)
+	assert.Equal(t, uint32(11), msg.ID)
+	assert.Equal(t, uint64(263694672238), msg.FileSize)
+	assert.Equal(t, "gigantic.iso\x00", string(msg.Data))
+}
