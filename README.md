@@ -22,3 +22,39 @@ To run all features appropriate for a given context, use component groups:
 * `--run-agent`
     * implies `--run-vdagent --run-rpc` 
     * example usage: [`tart-guest-agent.plist`](https://github.com/cirruslabs/macos-image-templates/blob/main/data/tart-guest-agent.plist)
+
+## Wrapping RPC commands
+
+An image administrator can configure a fixed command prefix with repeated
+`--exec-wrapper` flags. The guest agent appends the requested executable and its
+arguments without shell interpolation. The prefix applies to every Exec RPC,
+including interactive, PTY, detached, and user-override commands; clients cannot
+disable it. With no prefix, execution is unchanged.
+
+For example, a managed image can add an environment variable to every command:
+
+```sh
+tart-guest-agent --run-agent \
+  --exec-wrapper=/usr/bin/env \
+  --exec-wrapper=-- \
+  --exec-wrapper=MANAGED_IMAGE=example
+```
+
+The first argument must be an absolute path to a regular file that the guest
+agent's effective user can execute. Invalid configuration stops startup. A wrapper
+that cannot start never falls back to running the requested command directly.
+Attached commands return the wrapper's
+exit status; detached commands retain their existing process-start acknowledgment.
+Use a wrapper that replaces itself with the command so signals and exit handling
+retain their usual behavior.
+
+The wrapper receives the command name unchanged and handles its executable
+lookup. Include its end-of-options marker in the prefix when its interface
+requires one.
+
+The wrapper runs with the command's requested environment, working directory,
+and user. A requested user must also be able to execute the wrapper. Keep its
+executable, configuration, and launch settings under the image administrator's
+control, and choose a wrapper whose behavior remains correct
+under those overrides. Only commands started through the guest agent use this
+prefix.

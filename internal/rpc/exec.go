@@ -62,8 +62,8 @@ func (rpc *RPC) Exec(stream grpc.BidiStreamingServer[v1.ExecRequest, v1.ExecResp
 		execCtx = context.Background()
 	}
 
-	cmd := exec.CommandContext(execCtx, firstExecRequestCommand.Command.Name,
-		firstExecRequestCommand.Command.Args...)
+	cmd := rpc.execCommand(execCtx, firstExecRequestCommand.Command.GetName(),
+		firstExecRequestCommand.Command.GetArgs())
 
 	cmd.SysProcAttr = &syscall.SysProcAttr{}
 

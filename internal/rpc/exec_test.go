@@ -290,6 +290,18 @@ func startExecTest(
 	configure ...func(*execTestStream),
 ) (*RPC, *execTestStream, <-chan error) {
 	t.Helper()
+	rpc, err := New(nil)
+	require.NoError(t, err)
+	return startExecTestWithRPC(t, rpc, command, configure...)
+}
+
+func startExecTestWithRPC(
+	t *testing.T,
+	rpc *RPC,
+	command *v1.ExecRequest_Command,
+	configure ...func(*execTestStream),
+) (*RPC, *execTestStream, <-chan error) {
+	t.Helper()
 
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
@@ -297,8 +309,6 @@ func startExecTest(
 	for _, configureStream := range configure {
 		configureStream(stream)
 	}
-	rpc, err := New(nil)
-	require.NoError(t, err)
 	result := make(chan error, 1)
 	go func() {
 		result <- rpc.Exec(stream)
