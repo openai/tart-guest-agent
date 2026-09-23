@@ -4,12 +4,14 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
+	"os"
+	"time"
+
 	"github.com/cirruslabs/tart-guest-agent/internal/spice/vd"
 	"github.com/cirruslabs/tart-guest-agent/internal/spice/vdi"
 	"go.uber.org/zap"
 	"golang.design/x/clipboard"
-	"os"
-	"time"
 )
 
 const serialPortPath = "/dev/tty.com.redhat.spice.0"
@@ -47,7 +49,10 @@ func (agent *VDAgent) Run(ctx context.Context) error {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
-		case newClipboardState := <-clipboardCh:
+		case newClipboardState, ok := <-clipboardCh:
+			if !ok {
+				return errors.New("clipboard watch channel closed")
+			}
 			if err := agent.processClipboardState(newClipboardState.Bytes); err != nil {
 				return err
 			}
@@ -155,8 +160,9 @@ func (agent *VDAgent) Run(ctx context.Context) error {
 
 			zap.S().Debugf("I: VD_AGENT_CLIPBOARD: %s", vdAgentClipboard)
 
-			// Preserve the previous best-effort clipboard behavior.
-			_, _ = clipboard.Write(ctx, clipboard.FmtText, vdAgentClipboard.Data)
+			if _, err := clipboard.Write(ctx, clipboard.FmtText, vdAgentClipboard.Data); err != nil {
+				return fmt.Errorf("failed to write clipboard: %w", err)
+			}
 		case vd.VD_AGENT_CLIPBOARD_REQUEST:
 			vdAgentClipboardRequest, err := vd.DecodeVDAgentClipboardRequest(bytes.NewReader(vdiAgentMessage.Data))
 			if err != nil {
@@ -165,8 +171,11 @@ func (agent *VDAgent) Run(ctx context.Context) error {
 
 			zap.S().Debugf("I: VD_AGENT_CLIPBOARD_REQUEST: %s", vdAgentClipboardRequest)
 
-			// Send clipboard. A failed read remains an empty response.
-			clipboardData, _ := clipboard.Read(ctx, clipboard.FmtText)
+			// No text on the clipboard is a valid empty response.
+			clipboardData, err := clipboard.Read(ctx, clipboard.FmtText)
+			if err != nil && !errors.Is(err, clipboard.ErrNoData) {
+				return fmt.Errorf("failed to read clipboard: %w", err)
+			}
 			ourAgentClipboard := vd.VDAgentClipboard{
 				VDAgentClipboardInner: vd.VDAgentClipboardInner{
 					Selection: vd.VD_AGENT_CLIPBOARD_SELECTION_CLIPBOARD,
