@@ -25,9 +25,24 @@ import (
 )
 
 func TestExecGRPCBackgroundProcessLifetime(t *testing.T) {
+	testExecGRPCBackgroundProcessLifetime(t)
+}
+
+func TestExecWrapperGRPCBackgroundProcessLifetime(t *testing.T) {
+	receipt := filepath.Join(t.TempDir(), "wrapper-ran")
+	wrapper := writeExecWrapper(t, `printf wrapped > "$1"
+shift
+exec "$@"
+`)
+	testExecGRPCBackgroundProcessLifetime(t, wrapper, receipt)
+	require.FileExists(t, receipt)
+}
+
+func testExecGRPCBackgroundProcessLifetime(t *testing.T, execWrapper ...string) {
+	t.Helper()
 	for _, mode := range []string{"normal exit", "cancel after exit", "cancel while running"} {
 		t.Run(mode, func(t *testing.T) {
-			client := v1.NewAgentClient(newExecGRPCTestConn(t))
+			client := v1.NewAgentClient(newExecGRPCTestConn(t, execWrapper...))
 			ctx, cancel := context.WithTimeout(t.Context(), execTestTimeout)
 			defer cancel()
 
@@ -93,9 +108,9 @@ while [ ! -f "$RELEASE_FILE" ]; do sleep 0.01; done`},
 	}
 }
 
-func newExecGRPCTestConn(t *testing.T) *grpc.ClientConn {
+func newExecGRPCTestConn(t *testing.T, execWrapper ...string) *grpc.ClientConn {
 	listener := bufconn.Listen(1024 * 1024)
-	agent, err := New(listener)
+	agent, err := New(listener, execWrapper...)
 	require.NoError(t, err)
 
 	serveResult := make(chan error, 1)
