@@ -155,7 +155,8 @@ func (agent *VDAgent) Run(ctx context.Context) error {
 
 			zap.S().Debugf("I: VD_AGENT_CLIPBOARD: %s", vdAgentClipboard)
 
-			clipboard.Write(clipboard.FmtText, vdAgentClipboard.Data)
+			// Preserve the previous best-effort clipboard behavior.
+			_, _ = clipboard.Write(ctx, clipboard.FmtText, vdAgentClipboard.Data)
 		case vd.VD_AGENT_CLIPBOARD_REQUEST:
 			vdAgentClipboardRequest, err := vd.DecodeVDAgentClipboardRequest(bytes.NewReader(vdiAgentMessage.Data))
 			if err != nil {
@@ -164,13 +165,14 @@ func (agent *VDAgent) Run(ctx context.Context) error {
 
 			zap.S().Debugf("I: VD_AGENT_CLIPBOARD_REQUEST: %s", vdAgentClipboardRequest)
 
-			// Send clipboard
+			// Send clipboard. A failed read remains an empty response.
+			clipboardData, _ := clipboard.Read(ctx, clipboard.FmtText)
 			ourAgentClipboard := vd.VDAgentClipboard{
 				VDAgentClipboardInner: vd.VDAgentClipboardInner{
 					Selection: vd.VD_AGENT_CLIPBOARD_SELECTION_CLIPBOARD,
 					Type:      vd.VD_AGENT_CLIPBOARD_UTF8_TEXT,
 				},
-				Data: clipboard.Read(clipboard.FmtText),
+				Data: clipboardData,
 			}
 			ourAgentClipboardBytes, err := ourAgentClipboard.Encode()
 			if err != nil {
