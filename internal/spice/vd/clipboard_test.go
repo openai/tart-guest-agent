@@ -11,7 +11,7 @@ import (
 
 func TestClipboardTextAndImageEncoding(t *testing.T) {
 	// 1. Text clipboard
-	textData := []byte("Hello, Webomage & Tart!")
+	textData := []byte("Hello, SPICE & Tart!")
 	textClip := vd.VDAgentClipboard{
 		VDAgentClipboardInner: vd.VDAgentClipboardInner{
 			Selection: vd.VD_AGENT_CLIPBOARD_SELECTION_CLIPBOARD,

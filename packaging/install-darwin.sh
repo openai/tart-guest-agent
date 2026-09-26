@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Deploy and configure w0m enhanced tart-guest-agent to a running macOS Tart VM.
+# Deploy and configure tart-guest-agent to a running macOS Tart VM.
 # Enforces a single-active-process architecture with zero duplicate background entries.
 set -euo pipefail
 
