@@ -97,15 +97,24 @@ func acceptSocket(file *os.File) (int, error) {
 
 	var socketFD int
 	var acceptErr error
-	err = raw.Control(func(listenerFD uintptr) {
+	err = raw.Read(func(listenerFD uintptr) bool {
 		syscall.ForkLock.RLock()
 		defer syscall.ForkLock.RUnlock()
 
-		socketFD, _, acceptErr = unix.Accept(int(listenerFD))
-		if acceptErr != nil {
-			return
+		for {
+			socketFD, _, acceptErr = unix.Accept(int(listenerFD))
+			if acceptErr != unix.EINTR {
+				break
+			}
 		}
-		unix.CloseOnExec(socketFD)
+		if acceptErr == unix.EAGAIN {
+			// Let the runtime wait for readability, close, or a deadline.
+			return false
+		}
+		if acceptErr == nil {
+			unix.CloseOnExec(socketFD)
+		}
+		return true
 	})
 	if err != nil {
 		return -1, err

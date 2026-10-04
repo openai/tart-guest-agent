@@ -64,8 +64,10 @@ func TestSocketDescriptorsNotInherited(t *testing.T) {
 	require.NoError(t, unix.Listen(socketFD, unix.SOMAXCONN))
 	requireSocketFlags(t, socketFD)
 
+	require.NoError(t, file.SetReadDeadline(time.Now().Add(20*time.Millisecond)))
 	_, err = acceptSocket(file)
-	require.ErrorIs(t, err, unix.EAGAIN)
+	require.ErrorIs(t, err, os.ErrDeadlineExceeded)
+	require.NoError(t, file.SetReadDeadline(time.Time{}))
 
 	dialer := net.Dialer{Timeout: socketTestTimeout}
 	client, err := dialer.DialContext(t.Context(), "unix", path)
