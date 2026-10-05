@@ -86,10 +86,11 @@ func (rpc *RPC) Exec(stream grpc.BidiStreamingServer[v1.ExecRequest, v1.ExecResp
 			return sendStartFailure(stream)
 		}
 
-		// Release ownership before sending responses so failures do not leak the process handle
-		if err := cmd.Process.Release(); err != nil {
-			return err
-		}
+		// Reap the child and close its pipes after exit without delaying the start
+		// acknowledgement. Keep the waiter even if sending that response fails.
+		go func() {
+			_ = cmd.Wait()
+		}()
 
 		// Explicitly notify the client that the process was started,
 		// but don't provide an exec ID since it's a detached process
