@@ -30,13 +30,10 @@ readPayload:
 		toRead := min(len(buf), int(vdi.remaining))
 
 		n, err := vdi.inner.Read(buf[:toRead])
-		if err != nil {
-			return 0, err
-		}
-
+		// Readers may return valid bytes together with EOF or another error.
 		vdi.remaining -= uint64(n)
 
-		return n, nil
+		return n, err
 	}
 
 	// Read header
