@@ -266,7 +266,13 @@ func (rpc *RPC) Exec(stream grpc.BidiStreamingServer[v1.ExecRequest, v1.ExecResp
 	group, _ := errgroup.WithContext(stream.Context())
 
 	// Handle standard output from the command
-	group.Go(func() error {
+	group.Go(func() (copyErr error) {
+		defer func() {
+			// A failed output consumer cannot drain the child's pipes.
+			if copyErr != nil {
+				_ = cmd.Cancel()
+			}
+		}()
 		buf := make([]byte, standardStreamsBufferSize)
 
 		for {
@@ -301,7 +307,13 @@ func (rpc *RPC) Exec(stream grpc.BidiStreamingServer[v1.ExecRequest, v1.ExecResp
 	// Note that it makes no sense to handle standard error when TTY is requested
 	// because in this case stdout and stderr will point to the same file descriptor
 	if !firstExecRequestCommand.Command.Tty {
-		group.Go(func() error {
+		group.Go(func() (copyErr error) {
+			defer func() {
+				// A failed output consumer cannot drain the child's pipes.
+				if copyErr != nil {
+					_ = cmd.Cancel()
+				}
+			}()
 			buf := make([]byte, standardStreamsBufferSize)
 
 			for {
@@ -327,8 +339,9 @@ func (rpc *RPC) Exec(stream grpc.BidiStreamingServer[v1.ExecRequest, v1.ExecResp
 		})
 	}
 
-	if err := group.Wait(); err != nil {
-		zap.S().Warnf("%v", err)
+	outputErr := group.Wait()
+	if outputErr != nil {
+		zap.S().Warnf("%v", outputErr)
 	}
 
 	// Wait for the command to finish
@@ -342,6 +355,10 @@ func (rpc *RPC) Exec(stream grpc.BidiStreamingServer[v1.ExecRequest, v1.ExecResp
 	case err := <-fromClientErrCh:
 		return err
 	default:
+	}
+
+	if outputErr != nil {
+		return outputErr
 	}
 
 	exitCode := 0
