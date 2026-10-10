@@ -20,6 +20,9 @@ type VDAgent struct {
 	serialPort         *os.File
 	vdi                *vdi.VDI
 	lastClipboardState []byte
+	writeClipboard     func(context.Context, []byte) error
+	readClipboard      func(context.Context) ([]byte, error)
+	watchClipboard     func(context.Context) <-chan clipboard.Data
 }
 
 func New() (*VDAgent, error) {
@@ -35,6 +38,16 @@ func New() (*VDAgent, error) {
 	return &VDAgent{
 		serialPort: sp,
 		vdi:        vdi.New(sp),
+		writeClipboard: func(ctx context.Context, data []byte) error {
+			_, err := clipboard.Write(ctx, clipboard.FmtText, data)
+			return err
+		},
+		readClipboard: func(ctx context.Context) ([]byte, error) {
+			return clipboard.Read(ctx, clipboard.FmtText)
+		},
+		watchClipboard: func(ctx context.Context) <-chan clipboard.Data {
+			return clipboard.Watch(ctx, clipboard.FmtText)
+		},
 	}, nil
 }
 
@@ -42,21 +55,20 @@ func (agent *VDAgent) Run(ctx context.Context) error {
 	subCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	clipboardCh := clipboard.Watch(subCtx, clipboard.FmtText)
+	clipboardCh := agent.watchClipboard(subCtx)
 
 	for {
 		// Check for cancellation and clipboard changes
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
-		case newClipboardState, ok := <-clipboardCh:
+		case _, ok := <-clipboardCh:
 			if !ok {
 				return errors.New("clipboard watch channel closed")
 			}
-			if err := agent.processClipboardState(newClipboardState.Bytes); err != nil {
+			if err := agent.processClipboardChange(ctx); err != nil {
 				return err
 			}
-			agent.lastClipboardState = newClipboardState.Bytes
 		default:
 			// Nothing, proceed
 		}
@@ -160,8 +172,8 @@ func (agent *VDAgent) Run(ctx context.Context) error {
 
 			zap.S().Debugf("I: VD_AGENT_CLIPBOARD: %s", vdAgentClipboard)
 
-			if _, err := clipboard.Write(ctx, clipboard.FmtText, vdAgentClipboard.Data); err != nil {
-				return fmt.Errorf("failed to write clipboard: %w", err)
+			if err := agent.processHostClipboard(ctx, vdAgentClipboard.Data); err != nil {
+				return err
 			}
 		case vd.VD_AGENT_CLIPBOARD_REQUEST:
 			vdAgentClipboardRequest, err := vd.DecodeVDAgentClipboardRequest(bytes.NewReader(vdiAgentMessage.Data))
@@ -216,9 +228,31 @@ func (agent *VDAgent) Close() error {
 	return agent.serialPort.Close()
 }
 
-func (agent *VDAgent) processClipboardState(newClipboardState []byte) error {
-	if bytes.Equal(agent.lastClipboardState, newClipboardState) {
-		// Nothing changed since the last VD_AGENT_CLIPBOARD_GRAB from us
+func (agent *VDAgent) processHostClipboard(ctx context.Context, data []byte) error {
+	if err := agent.writeClipboard(ctx, data); err != nil {
+		return fmt.Errorf("failed to write clipboard: %w", err)
+	}
+
+	// The watcher must not announce this host-originated write back to the host:
+	// a plain-text grab would replace any rich or file data on its clipboard.
+	agent.lastClipboardState = bytes.Clone(data)
+
+	return nil
+}
+
+func (agent *VDAgent) processClipboardChange(ctx context.Context) error {
+	// Watch notifications can already be queued while we receive a host write.
+	// Use them only as wakeups: their bytes may predate the current clipboard.
+	// Reading the current value keeps stale notifications from replacing the
+	// remembered host write and causing a plain-text echo.
+	newClipboardState, err := agent.readClipboard(ctx)
+	if err != nil && !errors.Is(err, clipboard.ErrNoData) {
+		return fmt.Errorf("failed to read clipboard: %w", err)
+	}
+
+	// SPICE text may be NUL-terminated while the clipboard watcher omits it.
+	if bytes.Equal(bytes.TrimRight(agent.lastClipboardState, "\x00"), bytes.TrimRight(newClipboardState, "\x00")) {
+		// This value was already written by the host or advertised by us.
 		return nil
 	}
 
@@ -248,8 +282,9 @@ func (agent *VDAgent) processClipboardState(newClipboardState []byte) error {
 		return err
 	}
 
+	agent.lastClipboardState = bytes.Clone(newClipboardState)
+
 	zap.S().Debugf("O: VD_AGENT_CLIPBOARD_GRAB")
 
 	return nil
-
 }
