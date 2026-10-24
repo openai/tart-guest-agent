@@ -23,6 +23,54 @@ To run all features appropriate for a given context, use component groups:
     * implies `--run-vdagent --run-rpc` 
     * example usage: [`tart-guest-agent.plist`](https://github.com/cirruslabs/macos-image-templates/blob/main/data/tart-guest-agent.plist)
 
+## Installation
+
+### Linux
+
+Prebuilt packages are available on the [Releases](https://github.com/openai/tart-guest-agent/releases) page for `.deb`, `.rpm`, and `.apk` distributions.
+
+**Debian / Ubuntu:**
+```sh
+sudo dpkg -i tart-guest-agent_*_linux_arm64.deb # or linux_amd64.deb
+sudo systemctl daemon-reload
+sudo systemctl enable --now tart-guest-agent.service
+```
+
+**Fedora / RHEL:**
+```sh
+sudo rpm -i tart-guest-agent_*_linux_arm64.rpm # or linux_amd64.rpm
+sudo systemctl daemon-reload
+sudo systemctl enable --now tart-guest-agent.service
+```
+
+**Alpine:**
+```sh
+sudo apk add --allow-untrusted tart-guest-agent_*_linux_arm64.apk # or linux_amd64.apk
+```
+
+### macOS
+
+#### Via Homebrew
+
+```sh
+brew install openai/tools/tart-guest-agent
+```
+
+#### Manual Installation
+
+1. Download the latest universal archive (`tart-guest-agent-darwin-all.tar.gz`) from [Releases](https://github.com/openai/tart-guest-agent/releases) and place the executable at `/usr/local/bin/tart-guest-agent`.
+2. Configure launchd services:
+   - For automatic disk resizing: copy [`tart-guest-daemon.plist`](https://github.com/cirruslabs/macos-image-templates/blob/main/data/tart-guest-daemon.plist) to `/Library/LaunchDaemons/com.cirruslabs.tart-guest-daemon.plist`.
+   - For clipboard sharing and `tart exec`: copy [`tart-guest-agent.plist`](https://github.com/cirruslabs/macos-image-templates/blob/main/data/tart-guest-agent.plist) to `/Library/LaunchAgents/com.cirruslabs.tart-guest-agent.plist`.
+3. Load the services:
+   ```sh
+   # Load daemon
+   sudo launchctl bootstrap system /Library/LaunchDaemons/com.cirruslabs.tart-guest-daemon.plist
+
+   # Load agent (run as the target GUI user)
+   launchctl bootstrap gui/$(id -u) /Library/LaunchAgents/com.cirruslabs.tart-guest-agent.plist
+   ```
+
 ## Wrapping RPC commands
 
 An image administrator can configure a fixed command prefix with repeated
