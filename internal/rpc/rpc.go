@@ -5,10 +5,12 @@ import (
 	"net"
 	"os"
 	"slices"
+	"time"
 
 	"github.com/cirruslabs/tart-guest-agent/pkg/v1"
 	"github.com/puzpuzpuz/xsync/v4"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/keepalive"
 )
 
 type RPC struct {
@@ -26,7 +28,11 @@ func New(listener net.Listener, execWrapper ...string) (*RPC, error) {
 	}
 
 	rpc := &RPC{
-		grpcServer:  grpc.NewServer(),
+		grpcServer: grpc.NewServer(
+			grpc.KeepaliveParams(keepalive.ServerParameters{
+				MaxConnectionIdle: 5 * time.Second,
+			}),
+		),
 		listener:    listener,
 		execs:       xsync.NewMap[string, *os.Process](),
 		execWrapper: slices.Clone(execWrapper),
