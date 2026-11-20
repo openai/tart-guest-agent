@@ -3,7 +3,6 @@ package rpc
 import (
 	"context"
 	"net"
-	"os"
 	"slices"
 
 	"github.com/cirruslabs/tart-guest-agent/pkg/v1"
@@ -16,7 +15,7 @@ type RPC struct {
 
 	grpcServer  *grpc.Server
 	listener    net.Listener
-	execs       *xsync.Map[string, *os.Process]
+	execs       *xsync.Map[string, *execProcess]
 	execWrapper []string
 }
 
@@ -28,7 +27,7 @@ func New(listener net.Listener, execWrapper ...string) (*RPC, error) {
 	rpc := &RPC{
 		grpcServer:  grpc.NewServer(),
 		listener:    listener,
-		execs:       xsync.NewMap[string, *os.Process](),
+		execs:       xsync.NewMap[string, *execProcess](),
 		execWrapper: slices.Clone(execWrapper),
 	}
 

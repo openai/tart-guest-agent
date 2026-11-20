@@ -23,6 +23,7 @@ const (
 	Agent_Exec_FullMethodName      = "/Agent/Exec"
 	Agent_Signal_FullMethodName    = "/Agent/Signal"
 	Agent_ResolveIP_FullMethodName = "/Agent/ResolveIP"
+	Agent_Wait_FullMethodName      = "/Agent/Wait"
 )
 
 // AgentClient is the client API for Agent service.
@@ -32,6 +33,10 @@ type AgentClient interface {
 	Exec(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[ExecRequest, ExecResponse], error)
 	Signal(ctx context.Context, in *SignalRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
 	ResolveIP(ctx context.Context, in *ResolveIPRequest, opts ...grpc.CallOption) (*ResolveIPResponse, error)
+	// Wait for process exit while the original Exec RPC is still open.
+	// The Exec stream continues to deliver output and its final exit response.
+	// Calling Wait opts into ending process-group signaling when the process exits.
+	Wait(ctx context.Context, in *WaitRequest, opts ...grpc.CallOption) (*ExecResponse_Exit, error)
 }
 
 type agentClient struct {
@@ -75,6 +80,16 @@ func (c *agentClient) ResolveIP(ctx context.Context, in *ResolveIPRequest, opts 
 	return out, nil
 }
 
+func (c *agentClient) Wait(ctx context.Context, in *WaitRequest, opts ...grpc.CallOption) (*ExecResponse_Exit, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ExecResponse_Exit)
+	err := c.cc.Invoke(ctx, Agent_Wait_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // AgentServer is the server API for Agent service.
 // All implementations must embed UnimplementedAgentServer
 // for forward compatibility.
@@ -82,6 +97,10 @@ type AgentServer interface {
 	Exec(grpc.BidiStreamingServer[ExecRequest, ExecResponse]) error
 	Signal(context.Context, *SignalRequest) (*emptypb.Empty, error)
 	ResolveIP(context.Context, *ResolveIPRequest) (*ResolveIPResponse, error)
+	// Wait for process exit while the original Exec RPC is still open.
+	// The Exec stream continues to deliver output and its final exit response.
+	// Calling Wait opts into ending process-group signaling when the process exits.
+	Wait(context.Context, *WaitRequest) (*ExecResponse_Exit, error)
 	mustEmbedUnimplementedAgentServer()
 }
 
@@ -100,6 +119,9 @@ func (UnimplementedAgentServer) Signal(context.Context, *SignalRequest) (*emptyp
 }
 func (UnimplementedAgentServer) ResolveIP(context.Context, *ResolveIPRequest) (*ResolveIPResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ResolveIP not implemented")
+}
+func (UnimplementedAgentServer) Wait(context.Context, *WaitRequest) (*ExecResponse_Exit, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method Wait not implemented")
 }
 func (UnimplementedAgentServer) mustEmbedUnimplementedAgentServer() {}
 func (UnimplementedAgentServer) testEmbeddedByValue()               {}
@@ -165,6 +187,24 @@ func _Agent_ResolveIP_Handler(srv interface{}, ctx context.Context, dec func(int
 	return interceptor(ctx, in, info, handler)
 }
 
+func _Agent_Wait_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(WaitRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AgentServer).Wait(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Agent_Wait_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AgentServer).Wait(ctx, req.(*WaitRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // Agent_ServiceDesc is the grpc.ServiceDesc for Agent service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -179,6 +219,10 @@ var Agent_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ResolveIP",
 			Handler:    _Agent_ResolveIP_Handler,
+		},
+		{
+			MethodName: "Wait",
+			Handler:    _Agent_Wait_Handler,
 		},
 	},
 	Streams: []grpc.StreamDesc{

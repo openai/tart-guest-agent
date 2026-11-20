@@ -511,6 +511,50 @@ func (x *SignalRequest) GetSignal() SignalRequest_Signal {
 	return SignalRequest_SIGNAL_UNSPECIFIED
 }
 
+type WaitRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	ExecId        string                 `protobuf:"bytes,1,opt,name=exec_id,json=execId,proto3" json:"exec_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *WaitRequest) Reset() {
+	*x = WaitRequest{}
+	mi := &file_v1_agent_proto_msgTypes[7]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *WaitRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*WaitRequest) ProtoMessage() {}
+
+func (x *WaitRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_v1_agent_proto_msgTypes[7]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use WaitRequest.ProtoReflect.Descriptor instead.
+func (*WaitRequest) Descriptor() ([]byte, []int) {
+	return file_v1_agent_proto_rawDescGZIP(), []int{7}
+}
+
+func (x *WaitRequest) GetExecId() string {
+	if x != nil {
+		return x.ExecId
+	}
+	return ""
+}
+
 type ExecRequest_Command struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Name          string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
@@ -528,7 +572,7 @@ type ExecRequest_Command struct {
 
 func (x *ExecRequest_Command) Reset() {
 	*x = ExecRequest_Command{}
-	mi := &file_v1_agent_proto_msgTypes[7]
+	mi := &file_v1_agent_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -540,7 +584,7 @@ func (x *ExecRequest_Command) String() string {
 func (*ExecRequest_Command) ProtoMessage() {}
 
 func (x *ExecRequest_Command) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_agent_proto_msgTypes[7]
+	mi := &file_v1_agent_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -628,7 +672,7 @@ type ExecResponse_Exit struct {
 
 func (x *ExecResponse_Exit) Reset() {
 	*x = ExecResponse_Exit{}
-	mi := &file_v1_agent_proto_msgTypes[9]
+	mi := &file_v1_agent_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -640,7 +684,7 @@ func (x *ExecResponse_Exit) String() string {
 func (*ExecResponse_Exit) ProtoMessage() {}
 
 func (x *ExecResponse_Exit) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_agent_proto_msgTypes[9]
+	mi := &file_v1_agent_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -672,7 +716,7 @@ type ExecResponse_Started struct {
 
 func (x *ExecResponse_Started) Reset() {
 	*x = ExecResponse_Started{}
-	mi := &file_v1_agent_proto_msgTypes[10]
+	mi := &file_v1_agent_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -684,7 +728,7 @@ func (x *ExecResponse_Started) String() string {
 func (*ExecResponse_Started) ProtoMessage() {}
 
 func (x *ExecResponse_Started) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_agent_proto_msgTypes[10]
+	mi := &file_v1_agent_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -754,11 +798,14 @@ const file_v1_agent_proto_rawDesc = "" +
 	"\x06Signal\x12\x16\n" +
 	"\x12SIGNAL_UNSPECIFIED\x10\x00\x12\x12\n" +
 	"\x0eSIGNAL_SIGTERM\x10\x01\x12\x12\n" +
-	"\x0eSIGNAL_SIGKILL\x10\x022\x96\x01\n" +
+	"\x0eSIGNAL_SIGKILL\x10\x02\"&\n" +
+	"\vWaitRequest\x12\x17\n" +
+	"\aexec_id\x18\x01 \x01(\tR\x06execId2\xc0\x01\n" +
 	"\x05Agent\x12'\n" +
 	"\x04Exec\x12\f.ExecRequest\x1a\r.ExecResponse(\x010\x01\x120\n" +
 	"\x06Signal\x12\x0e.SignalRequest\x1a\x16.google.protobuf.Empty\x122\n" +
-	"\tResolveIP\x12\x11.ResolveIPRequest\x1a\x12.ResolveIPResponseB/Z-github.com/cirruslabs/tart-guest-agent/pkg/v1b\x06proto3"
+	"\tResolveIP\x12\x11.ResolveIPRequest\x1a\x12.ResolveIPResponse\x12(\n" +
+	"\x04Wait\x12\f.WaitRequest\x1a\x12.ExecResponse.ExitB/Z-github.com/cirruslabs/tart-guest-agent/pkg/v1b\x06proto3"
 
 var (
 	file_v1_agent_proto_rawDescOnce sync.Once
@@ -773,7 +820,7 @@ func file_v1_agent_proto_rawDescGZIP() []byte {
 }
 
 var file_v1_agent_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_v1_agent_proto_msgTypes = make([]protoimpl.MessageInfo, 11)
+var file_v1_agent_proto_msgTypes = make([]protoimpl.MessageInfo, 12)
 var file_v1_agent_proto_goTypes = []any{
 	(SignalRequest_Signal)(0),    // 0: SignalRequest.Signal
 	(*ExecRequest)(nil),          // 1: ExecRequest
@@ -783,31 +830,34 @@ var file_v1_agent_proto_goTypes = []any{
 	(*ResolveIPRequest)(nil),     // 5: ResolveIPRequest
 	(*ResolveIPResponse)(nil),    // 6: ResolveIPResponse
 	(*SignalRequest)(nil),        // 7: SignalRequest
-	(*ExecRequest_Command)(nil),  // 8: ExecRequest.Command
-	nil,                          // 9: ExecRequest.Command.EnvEntry
-	(*ExecResponse_Exit)(nil),    // 10: ExecResponse.Exit
-	(*ExecResponse_Started)(nil), // 11: ExecResponse.Started
-	(*emptypb.Empty)(nil),        // 12: google.protobuf.Empty
+	(*WaitRequest)(nil),          // 8: WaitRequest
+	(*ExecRequest_Command)(nil),  // 9: ExecRequest.Command
+	nil,                          // 10: ExecRequest.Command.EnvEntry
+	(*ExecResponse_Exit)(nil),    // 11: ExecResponse.Exit
+	(*ExecResponse_Started)(nil), // 12: ExecResponse.Started
+	(*emptypb.Empty)(nil),        // 13: google.protobuf.Empty
 }
 var file_v1_agent_proto_depIdxs = []int32{
-	8,  // 0: ExecRequest.command:type_name -> ExecRequest.Command
+	9,  // 0: ExecRequest.command:type_name -> ExecRequest.Command
 	4,  // 1: ExecRequest.standard_input:type_name -> IOChunk
 	3,  // 2: ExecRequest.terminal_resize:type_name -> TerminalSize
-	10, // 3: ExecResponse.exit:type_name -> ExecResponse.Exit
+	11, // 3: ExecResponse.exit:type_name -> ExecResponse.Exit
 	4,  // 4: ExecResponse.standard_output:type_name -> IOChunk
 	4,  // 5: ExecResponse.standard_error:type_name -> IOChunk
-	11, // 6: ExecResponse.started:type_name -> ExecResponse.Started
+	12, // 6: ExecResponse.started:type_name -> ExecResponse.Started
 	0,  // 7: SignalRequest.signal:type_name -> SignalRequest.Signal
 	3,  // 8: ExecRequest.Command.terminal_size:type_name -> TerminalSize
-	9,  // 9: ExecRequest.Command.env:type_name -> ExecRequest.Command.EnvEntry
+	10, // 9: ExecRequest.Command.env:type_name -> ExecRequest.Command.EnvEntry
 	1,  // 10: Agent.Exec:input_type -> ExecRequest
 	7,  // 11: Agent.Signal:input_type -> SignalRequest
 	5,  // 12: Agent.ResolveIP:input_type -> ResolveIPRequest
-	2,  // 13: Agent.Exec:output_type -> ExecResponse
-	12, // 14: Agent.Signal:output_type -> google.protobuf.Empty
-	6,  // 15: Agent.ResolveIP:output_type -> ResolveIPResponse
-	13, // [13:16] is the sub-list for method output_type
-	10, // [10:13] is the sub-list for method input_type
+	8,  // 13: Agent.Wait:input_type -> WaitRequest
+	2,  // 14: Agent.Exec:output_type -> ExecResponse
+	13, // 15: Agent.Signal:output_type -> google.protobuf.Empty
+	6,  // 16: Agent.ResolveIP:output_type -> ResolveIPResponse
+	11, // 17: Agent.Wait:output_type -> ExecResponse.Exit
+	14, // [14:18] is the sub-list for method output_type
+	10, // [10:14] is the sub-list for method input_type
 	10, // [10:10] is the sub-list for extension type_name
 	10, // [10:10] is the sub-list for extension extendee
 	0,  // [0:10] is the sub-list for field type_name
@@ -835,7 +885,7 @@ func file_v1_agent_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_v1_agent_proto_rawDesc), len(file_v1_agent_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   11,
+			NumMessages:   12,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

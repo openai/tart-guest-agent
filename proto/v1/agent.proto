@@ -8,6 +8,10 @@ service Agent {
   rpc Exec(stream ExecRequest) returns (stream ExecResponse);
   rpc Signal(SignalRequest) returns (google.protobuf.Empty);
   rpc ResolveIP(ResolveIPRequest) returns (ResolveIPResponse);
+  // Wait for process exit while the original Exec RPC is still open.
+  // The Exec stream continues to deliver output and its final exit response.
+  // Calling Wait opts into ending process-group signaling when the process exits.
+  rpc Wait(WaitRequest) returns (ExecResponse.Exit);
 }
 
 message ExecRequest {
@@ -73,4 +77,8 @@ message SignalRequest {
 
   string exec_id = 1;
   Signal signal = 2;
+}
+
+message WaitRequest {
+  string exec_id = 1;
 }

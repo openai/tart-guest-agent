@@ -19,6 +19,7 @@ import (
 	"github.com/samber/lo"
 	"go.uber.org/zap"
 	"golang.org/x/sync/errgroup"
+	"golang.org/x/sys/unix"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -35,6 +36,14 @@ const (
 	// signalExitCodeOffset is the base for shell-style exit codes of processes terminated by signals.
 	signalExitCodeOffset = 128
 )
+
+type execProcess struct {
+	cmd           *exec.Cmd
+	waitRequested chan struct{}
+	done          chan struct{}
+	code          int32
+	err           error
+}
 
 //nolint:gocognit,gocyclo,maintidx // Exec coordinates process startup, bidirectional I/O, and cleanup.
 func (rpc *RPC) Exec(stream grpc.BidiStreamingServer[v1.ExecRequest, v1.ExecResponse]) error {
@@ -111,9 +120,15 @@ func (rpc *RPC) Exec(stream grpc.BidiStreamingServer[v1.ExecRequest, v1.ExecResp
 		return nil
 	}
 
+	execution := &execProcess{
+		cmd:           cmd,
+		waitRequested: make(chan struct{}, 1),
+		done:          make(chan struct{}),
+	}
+
 	// Kill the whole process group when the exec stream is canceled
 	cmd.Cancel = func() error {
-		return signalProcessGroup(cmd.Process, syscall.SIGKILL)
+		return execution.signal(syscall.SIGKILL)
 	}
 
 	var stdin io.WriteCloser
@@ -125,6 +140,15 @@ func (rpc *RPC) Exec(stream grpc.BidiStreamingServer[v1.ExecRequest, v1.ExecResp
 			Rows: uint16(firstExecRequestCommand.Command.GetTerminalSize().GetRows()),
 			Cols: uint16(firstExecRequestCommand.Command.GetTerminalSize().GetCols()),
 		})
+		if err == nil {
+			ptmx, err = nonblockingPTY(ptmx)
+			if err != nil {
+				_ = cmd.Cancel()
+				execution.wait()
+
+				return err
+			}
+		}
 
 		if firstExecRequestCommand.Command.Interactive {
 			stdin = ptmx
@@ -135,24 +159,43 @@ func (rpc *RPC) Exec(stream grpc.BidiStreamingServer[v1.ExecRequest, v1.ExecResp
 		// Start the command in its own process group so signals reach all descendants
 		cmd.SysProcAttr.Setpgid = true
 
+		// Own the pipes so process waiting cannot close streams still in use.
+		var stdinReader, stdoutWriter, stderrWriter *os.File
 		if firstExecRequestCommand.Command.Interactive {
-			stdin, err = cmd.StdinPipe()
+			stdinReader, stdin, err = os.Pipe()
 			if err != nil {
 				return err
 			}
+			defer stdinReader.Close()
+			defer stdin.Close()
+
+			cmd.Stdin = stdinReader
 		}
 
-		stdout, err = cmd.StdoutPipe()
+		stdout, stdoutWriter, err = os.Pipe()
 		if err != nil {
 			return err
 		}
+		defer stdout.Close()
+		defer stdoutWriter.Close()
 
-		stderr, err = cmd.StderrPipe()
+		cmd.Stdout = stdoutWriter
+
+		stderr, stderrWriter, err = os.Pipe()
 		if err != nil {
 			return err
 		}
+		defer stderr.Close()
+		defer stderrWriter.Close()
+
+		cmd.Stderr = stderrWriter
 
 		err = cmd.Start()
+		if stdinReader != nil {
+			_ = stdinReader.Close()
+		}
+		_ = stdoutWriter.Close()
+		_ = stderrWriter.Close()
 	}
 
 	if err != nil {
@@ -168,7 +211,7 @@ func (rpc *RPC) Exec(stream grpc.BidiStreamingServer[v1.ExecRequest, v1.ExecResp
 	}
 
 	execID := uuid.NewString()
-	rpc.execs.Store(execID, cmd.Process)
+	rpc.execs.Store(execID, execution)
 	defer rpc.execs.Delete(execID)
 
 	// Explicitly notify the client that the process was started
@@ -176,7 +219,7 @@ func (rpc *RPC) Exec(stream grpc.BidiStreamingServer[v1.ExecRequest, v1.ExecResp
 	if err != nil {
 		// Output readers have not started yet, so cancel and reap directly
 		_ = cmd.Cancel()
-		_ = cmd.Wait()
+		execution.wait()
 
 		return err
 	}
@@ -327,12 +370,46 @@ func (rpc *RPC) Exec(stream grpc.BidiStreamingServer[v1.ExecRequest, v1.ExecResp
 		})
 	}
 
-	if err := group.Wait(); err != nil {
-		zap.S().Warnf("%v", err)
+	outputDone := make(chan struct{})
+	go func() {
+		defer close(outputDone)
+
+		if err := group.Wait(); err != nil {
+			zap.S().Warnf("%v", err)
+		}
+	}()
+
+	// Exec owns process waiting. Only an explicit Wait request starts it before output drains.
+	select {
+	case <-execution.waitRequested:
+	case <-outputDone:
+	}
+	execution.wait()
+
+	closeStreams := func() {
+		if stdin != nil {
+			_ = stdin.Close()
+		}
+		_ = stdout.Close()
+		_ = stderr.Close()
 	}
 
-	// Wait for the command to finish
-	err = cmd.Wait()
+	select {
+	case <-outputDone:
+	case err := <-fromClientErrCh:
+		closeStreams()
+		<-outputDone
+
+		return err
+	case <-execCtx.Done():
+		// After early waiting, descendants may still hold the streams open.
+		closeStreams()
+		<-outputDone
+	}
+
+	if ptmx == nil {
+		closeStreams()
+	}
 
 	// Minimize the window in which a finished exec can still be signaled
 	rpc.execs.Delete(execID)
@@ -344,26 +421,14 @@ func (rpc *RPC) Exec(stream grpc.BidiStreamingServer[v1.ExecRequest, v1.ExecResp
 	default:
 	}
 
-	exitCode := 0
-
-	if err != nil {
-		var exitError *exec.ExitError
-		if !errors.As(err, &exitError) {
-			return err
-		}
-
-		// ExitCode returns -1 for signals; report the containerd-compatible 128 + signal instead
-		exitCode = exitError.ExitCode()
-
-		if waitStatus, ok := exitError.Sys().(syscall.WaitStatus); ok && waitStatus.Signaled() {
-			exitCode = signalExitCodeOffset + int(waitStatus.Signal())
-		}
+	if execution.err != nil {
+		return execution.err
 	}
 
 	return stream.Send(&v1.ExecResponse{
 		Type: &v1.ExecResponse_Exit_{
 			Exit: &v1.ExecResponse_Exit{
-				Code: int32(exitCode),
+				Code: execution.code,
 			},
 		},
 	})
@@ -404,8 +469,31 @@ func closeStdin(stdin io.WriteCloser, tty bool, closed *bool) error {
 	return nil
 }
 
+func (rpc *RPC) Wait(ctx context.Context, request *v1.WaitRequest) (*v1.ExecResponse_Exit, error) {
+	execution, ok := rpc.execs.Load(request.GetExecId())
+	if !ok {
+		return nil, status.Error(codes.NotFound, "exec not found")
+	}
+
+	select {
+	case execution.waitRequested <- struct{}{}:
+	default:
+	}
+
+	select {
+	case <-execution.done:
+		if execution.err != nil {
+			return nil, execution.err
+		}
+
+		return &v1.ExecResponse_Exit{Code: execution.code}, nil
+	case <-ctx.Done():
+		return nil, status.FromContextError(ctx.Err()).Err()
+	}
+}
+
 func (rpc *RPC) Signal(_ context.Context, request *v1.SignalRequest) (*emptypb.Empty, error) {
-	process, ok := rpc.execs.Load(request.GetExecId())
+	execution, ok := rpc.execs.Load(request.GetExecId())
 	if !ok {
 		return nil, fmt.Errorf("exec %q is not running", request.GetExecId())
 	}
@@ -421,7 +509,7 @@ func (rpc *RPC) Signal(_ context.Context, request *v1.SignalRequest) (*emptypb.E
 		return nil, fmt.Errorf("unsupported exec signal %q", request.GetSignal().String())
 	}
 
-	if err := signalProcessGroup(process, signal); err != nil {
+	if err := execution.signal(signal); err != nil {
 		// The process may exit after lookup, so treat the missing process as a no-op
 		if errors.Is(err, os.ErrProcessDone) {
 			return &emptypb.Empty{}, nil
@@ -431,6 +519,32 @@ func (rpc *RPC) Signal(_ context.Context, request *v1.SignalRequest) (*emptypb.E
 	}
 
 	return &emptypb.Empty{}, nil
+}
+
+func (execution *execProcess) wait() {
+	defer close(execution.done)
+
+	err := execution.cmd.Wait()
+	var exitError *exec.ExitError
+	if !errors.As(err, &exitError) {
+		execution.err = err
+		return
+	}
+
+	// ExitCode returns -1 for signals; use the containerd-compatible 128 + signal.
+	execution.code = int32(exitError.ExitCode())
+	if waitStatus, ok := exitError.Sys().(syscall.WaitStatus); ok && waitStatus.Signaled() {
+		execution.code = signalExitCodeOffset + int32(waitStatus.Signal())
+	}
+}
+
+func (execution *execProcess) signal(signal syscall.Signal) error {
+	select {
+	case <-execution.done:
+		return os.ErrProcessDone
+	default:
+		return signalProcessGroup(execution.cmd.Process, signal)
+	}
 }
 
 func sendStartSuccess(stream grpc.BidiStreamingServer[v1.ExecRequest, v1.ExecResponse], execID string) error {
@@ -516,4 +630,22 @@ func formatCommandAndArgs(name string, args []string) string {
 	})
 
 	return fmt.Sprintf("[%s]", strings.Join(all, ", "))
+}
+
+func nonblockingPTY(ptmx *os.File) (*os.File, error) {
+	defer ptmx.Close()
+
+	terminalFD, err := unix.FcntlInt(ptmx.Fd(), unix.F_DUPFD_CLOEXEC, 0)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := unix.SetNonblock(terminalFD, true); err != nil {
+		_ = unix.Close(terminalFD)
+		return nil, err
+	}
+
+	// NewFile registers an already nonblocking descriptor with Go's poller and
+	// keeps Fd calls from terminal resizing from restoring blocking reads.
+	return os.NewFile(uintptr(terminalFD), ptmx.Name()), nil
 }
